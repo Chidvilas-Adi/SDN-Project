@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.pyo
+packet_log.csv# generated at runtime, don't push
+*.egg-info/
+.env
