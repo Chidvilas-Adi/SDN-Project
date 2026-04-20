@@ -1,356 +1,323 @@
-# SDN Packet Logger — UE24CS252B
+<div align="center">
 
-**Course:** Computer Networks — UE24CS252B  
-**Project:** SDN Mininet-based Simulation (Orange Problem)  
-**Topic:** Packet Logger using SDN Controller
+```
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║        ███████╗██████╗ ███╗   ██╗                            ║
+║        ██╔════╝██╔══██╗████╗  ██║                            ║
+║        ███████╗██║  ██║██╔██╗ ██║                            ║
+║        ╚════██║██║  ██║██║╚██╗██║                            ║
+║        ███████║██████╔╝██║ ╚████║                            ║
+║        ╚══════╝╚═════╝ ╚═╝  ╚═══╝                            ║
+║                                                               ║
+║         P A C K E T   L O G G E R                            ║
+║         Software Defined Networking — UE24CS252B              ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+```
+
+<img src="https://img.shields.io/badge/OpenFlow-1.0-blue?style=for-the-badge&logo=cisco&logoColor=white"/>
+<img src="https://img.shields.io/badge/Controller-POX-purple?style=for-the-badge"/>
+<img src="https://img.shields.io/badge/Mininet-2.3-green?style=for-the-badge"/>
+<img src="https://img.shields.io/badge/Python-3.x-yellow?style=for-the-badge&logo=python&logoColor=white"/>
+<img src="https://img.shields.io/badge/OVS-OpenVSwitch-orange?style=for-the-badge"/>
+
+> **Every packet has a story. This controller reads them all.**
+
+</div>
 
 ---
 
-## Problem Statement
+## What is this?
 
-Implement an SDN-based packet logger using **Mininet** and the **Ryu OpenFlow controller** that:
+A fully functional **Software Defined Network** running on a single machine — four virtual hosts, three OpenFlow switches, one controller brain — and every single packet that moves across this network gets **captured, classified, and logged** in real time.
 
-- Captures every packet traversing the network via `packet_in` controller events
-- Identifies and classifies protocol types (ARP, ICMP, TCP, UDP, HTTP)
-- Logs packet headers, ports, actions and sizes to a structured CSV file
-- Demonstrates a **learning switch** with proactive flow rule installation
-- Validates behaviour with at least two distinct test scenarios
+When `h1` pings `h3`, the switch doesn't just forward it. It asks the controller: *"What do I do with this?"* The controller learns, decides, installs a rule, and writes the event to a CSV log with the protocol type, source, destination, ports, size, and action taken.
+
+That's SDN. That's this project.
 
 ---
 
-## Project Structure
+## Architecture
 
 ```
-sdn_packet_logger/
-├── packet_logger.py    # Ryu controller (OpenFlow 1.3)
-├── topology.py         # Custom Mininet tree topology
-├── test_scenarios.py   # Automated test scenarios (pingall, iperf, HTTP)
-├── analyze_log.py      # Post-run CSV log analyser
-├── packet_log.csv      # Generated at runtime by the controller
-└── README.md
+                    ┌─────────────────────────┐
+                    │     POX Controller      │
+                    │   packet_logger.py      │
+                    │   127.0.0.1 : 6633      │
+                    └────────────┬────────────┘
+                                 │  OpenFlow 1.0
+                    ┌────────────▼────────────┐
+                    │          s1             │
+                    │     (root switch)       │
+                    └──────┬──────────┬───────┘
+                           │          │
+              ┌────────────▼──┐  ┌────▼────────────┐
+              │      s2       │  │       s3         │
+              │ (access sw)   │  │  (access sw)     │
+              └──┬────────┬───┘  └───┬──────────┬──┘
+                 │        │          │           │
+           ┌─────▼─┐  ┌───▼──┐  ┌───▼──┐  ┌────▼──┐
+           │  h1   │  │  h2  │  │  h3  │  │  h4   │
+           │.0.0.1 │  │.0.0.2│  │.0.0.3│  │ .0.0.4│
+           └───────┘  └──────┘  └──────┘  └───────┘
 ```
+
+| Node | Role | Address |
+|------|------|---------|
+| `c0` | POX Controller | `127.0.0.1:6633` |
+| `s1` | Root OVS Switch | dpid `00:00:00:00:00:01` |
+| `s2` | Access Switch | dpid `00:00:00:00:00:02` |
+| `s3` | Access Switch | dpid `00:00:00:00:00:03` |
+| `h1` | Host | `10.0.0.1/24` |
+| `h2` | Host | `10.0.0.2/24` |
+| `h3` | Host | `10.0.0.3/24` |
+| `h4` | Host | `10.0.0.4/24` |
 
 ---
 
-## Topology
+## Project Files
 
 ```
-         [ c0  Ryu controller  127.0.0.1:6633 ]
-                       |  (OpenFlow 1.3)
-                    [ s1 ]
-                  /        \
-             [ s2 ]        [ s3 ]
-            /     \        /     \
-          h1      h2     h3      h4
-       10.0.0.1 10.0.0.2 10.0.0.3 10.0.0.4
-```
-
-| Node | Type    | IP / DPID               |
-|------|---------|-------------------------|
-| c0   | Controller | 127.0.0.1:6633       |
-| s1   | OVS switch | dpid=0000000000000001 |
-| s2   | OVS switch | dpid=0000000000000002 |
-| s3   | OVS switch | dpid=0000000000000003 |
-| h1   | Host    | 10.0.0.1/24             |
-| h2   | Host    | 10.0.0.2/24             |
-| h3   | Host    | 10.0.0.3/24             |
-| h4   | Host    | 10.0.0.4/24             |
-
----
-
-## Prerequisites
-
-Ubuntu 20.04 / 22.04 with:
-
-```
-- Mininet (sudo apt install mininet -y)
-- Open vSwitch (installed with Mininet)
-- Ryu SDN framework (pip install ryu)
-- Python 3.8+
-- iperf (sudo apt install iperf -y)
-- curl (sudo apt install curl -y)
-```
-
----
-
-## Setup & Installation
-
-### Step 1 — Update the system
-
-```bash
-sudo apt update && sudo apt upgrade -y
-```
-
-### Step 2 — Install Mininet
-
-```bash
-sudo apt install mininet -y
-# Verify
-sudo mn --version
-```
-
-### Step 3 — Install Ryu
-
-```bash
-pip install ryu
-# Verify
-ryu-manager --version
-```
-
-> If you get an `eventlet` error, pin it:
-> ```bash
-> pip install eventlet==0.30.2
-> pip install ryu
-> ```
-
-### Step 4 — Install test tools
-
-```bash
-sudo apt install iperf curl -y
-```
-
-### Step 5 — Clone / copy project files
-
-```bash
-# If from GitHub:
-git clone https://github.com/<your-username>/sdn-packet-logger.git
-cd sdn-packet-logger
-
-# Or place all files in one folder and cd into it
-cd sdn_packet_logger
+SDN-Project/
+│
+├── packet_logger.py      ← POX controller component
+│                           Handles packet_in events
+│                           MAC learning + flow rule installation
+│                           Protocol classification + CSV logging
+│
+├── topology.py           ← Custom Mininet topology
+│                           tree depth=2 fanout=2
+│                           Connects to remote POX controller
+│
+├── test_scenarios.py     ← Automated test runner
+│                           pingall, iperf TCP, iperf UDP, HTTP, netcat
+│
+├── analyze_log.py        ← Post-run CSV analyser
+│                           Protocol distribution, top IPs, stats
+│
+└── README.md             ← You are here
 ```
 
 ---
 
-## Running the Project
+## How the Controller Works
 
-You need **two separate terminal windows**.
+### 1. Table-miss → packet_in
+
+Every switch starts with one rule: *"if nothing matches, send to controller."*
+
+```
+priority = 0   match = *   action = CONTROLLER
+```
+
+### 2. Controller receives packet_in
+
+The `_handle_PacketIn` function fires. It:
+- Reads the Ethernet frame
+- Learns `src_mac → in_port` mapping
+- Looks up `dst_mac` in the table
+
+### 3. Classify the protocol
+
+```
+Ethernet
+├── ethertype 0x0806  →  ARP
+└── ethertype 0x0800  →  IPv4
+    ├── protocol 1    →  ICMP
+    ├── protocol 6    →  TCP
+    │   └── dst_port 80/8080/8000  →  HTTP
+    └── protocol 17   →  UDP
+```
+
+### 4. Forward + install flow rule
+
+```
+If dst_mac is known  →  FORWARD to specific port + install flow rule
+If dst_mac unknown   →  FLOOD to all ports
+```
+
+The installed flow rule:
+```
+priority = 1
+match    = (in_port=X, eth_src=M, eth_dst=N)
+action   = output:Y
+timeout  = 30s idle
+```
+
+After this, subsequent packets in the same flow bypass the controller entirely — the switch handles them at line rate.
+
+### 5. Log everything
+
+Every `packet_in` event writes one row to `packet_log.csv`:
+
+```
+timestamp, switch_dpid, in_port, eth_src, eth_dst, eth_type,
+protocol, ip_src, ip_dst, src_port, dst_port, pkt_size, action
+```
 
 ---
 
-### Terminal 1 — Start the Ryu controller
+## Setup
+
+### Prerequisites
 
 ```bash
-ryu-manager packet_logger.py --observe-links
+# Arch Linux
+sudo pacman -S openvswitch python git iperf openbsd-netcat
+
+# Start OVS (required before mn)
+sudo systemctl start ovsdb-server
+sudo systemctl start ovs-vswitchd
+
+# Clone POX (no pip needed — pure Python)
+git clone https://github.com/noxrepo/pox.git ~/pox
+
+# Install Mininet from source
+git clone https://github.com/mininet/mininet.git ~/mininet
+cd ~/mininet && sudo python3 setup.py install && sudo make install
 ```
 
-Expected output:
-```
-loading app packet_logger.py
-loading app ryu.controller.ofp_handler
-=== Packet Logger Controller Started ===
-CSV log: /path/to/packet_log.csv
-```
+### Install this project
 
-Leave this running.
+```bash
+git clone https://github.com/Chidvilas-Adi/SDN-Project.git
+cp SDN-Project/packet_logger.py ~/pox/ext/
+```
 
 ---
 
-### Terminal 2 — Start the Mininet topology
+## Running
 
+Two terminals. Always start the controller first.
+
+**Terminal 1 — Controller**
 ```bash
-sudo python3 topology.py
+cd ~/pox
+python3 pox.py log.level --DEBUG packet_logger
 ```
 
-Or using the built-in `mn` command directly:
-
+**Terminal 2 — Network**
 ```bash
-sudo mn \
-  --topo tree,depth=2,fanout=2 \
-  --controller remote,ip=127.0.0.1,port=6633 \
-  --switch ovsk,protocols=OpenFlow13 \
-  --link tc
-```
-
-Expected output:
-```
-*** Network started
-*** Switches: s1, s2, s3
-*** Hosts: h1(10.0.0.1) h2(10.0.0.2) h3(10.0.0.3) h4(10.0.0.4)
-*** Controller: c0 at 127.0.0.1:6633
-*** Running connectivity test...
-h1 -> h2 h3 h4
-h2 -> h1 h3 h4
-h3 -> h1 h2 h4
-h4 -> h1 h2 h3
-*** Results: 0% dropped (12/12 received)
-mininet>
+sudo mn --topo tree,depth=2,fanout=2 \
+        --controller remote,ip=127.0.0.1,port=6633 \
+        --switch ovsk,protocols=OpenFlow10
 ```
 
 ---
 
 ## Test Scenarios
 
-### Scenario 1 — Connectivity (pingAll)
-
-Inside the Mininet CLI:
-
+### Scenario 1 — Connectivity (ICMP / ARP)
 ```
 mininet> pingall
+# Expected: 0% packet loss
+# POX log: ARP floods first, then ICMP forwards
 ```
-
-Expected: **0% packet loss** across all 4 hosts.
-
----
 
 ### Scenario 2 — Latency measurement
-
 ```
 mininet> h1 ping -c 10 h3
+# First ping ~20ms (ARP + flow install), rest <1ms (rule hit)
 ```
 
-Observe RTT in Terminal 1 (controller log). Expected: ~4–6 ms (2 ms per hop × 2 hops).
-
----
-
-### Scenario 3 — Throughput with iperf (TCP)
-
+### Scenario 3 — TCP throughput
 ```
 mininet> h3 iperf -s &
 mininet> h1 iperf -c 10.0.0.3 -t 10
 mininet> h3 kill %iperf
 ```
 
----
-
-### Scenario 4 — Throughput with iperf (UDP)
-
+### Scenario 4 — UDP throughput
 ```
 mininet> h4 iperf -s -u &
-mininet> h2 iperf -c 10.0.0.4 -u -b 5m -t 10
+mininet> h2 iperf -c 10.0.0.4 -u -b 10m -t 10
 mininet> h4 kill %iperf
 ```
 
----
-
 ### Scenario 5 — HTTP traffic
-
 ```
-mininet> h3 python3 -m http.server 8080 &
-mininet> h1 curl http://10.0.0.3:8080/
-mininet> h3 kill %python3
+mininet> h3 python3 -m http.server 80 &
+mininet> h1 curl http://10.0.0.3/
+# Logged as HTTP (dst_port=80), not TCP
+```
+
+### Scenario 6 — Raw TCP / UDP (netcat)
+```
+mininet> h2 nc -l -p 9999 &
+mininet> h1 sh -c 'echo "hello" | nc 10.0.0.2 9999'
+
+mininet> h2 nc -u -l -p 5005 &
+mininet> h1 sh -c 'echo "udp" | nc -u -w1 10.0.0.2 5005'
 ```
 
 ---
 
-### Run all scenarios automatically
+## Reading the Output
 
+### POX Console (Terminal 1)
+```
+[12:01:03.421] dpid=00-00-00-00-00-01 port=1 | ARP   | 10.0.0.1 -> 10.0.0.3 | FLOOD
+[12:01:03.445] dpid=00-00-00-00-00-01 port=3 | ICMP  | 10.0.0.3 -> 10.0.0.1 | FORWARD
+[12:01:04.100] dpid=00-00-00-00-00-02 port=1 | HTTP  | 10.0.0.1 -> 10.0.0.3 | FORWARD
+[12:01:04.910] dpid=00-00-00-00-00-03 port=2 | UDP   | 10.0.0.2 -> 10.0.0.4 | FORWARD
+```
+
+| Field | Meaning |
+|-------|---------|
+| `dpid` | Which switch handled the packet |
+| `port` | Which port it arrived on |
+| `ICMP / TCP / UDP / HTTP / ARP` | Detected protocol |
+| `FORWARD` | Sent to a known port (MAC learned) |
+| `FLOOD` | Sent to all ports (MAC unknown — first packet) |
+
+### CSV Log
 ```bash
-# With network already running (from topology.py):
-mininet> py exec(open('test_scenarios.py').read()); run_all_scenarios(net)
+tail -20 ~/pox/packet_log.csv        # last 20 entries
+grep "HTTP" ~/pox/packet_log.csv     # filter by protocol
+grep "FLOOD" ~/pox/packet_log.csv    # see all floods
+python3 analyze_log.py --file ~/pox/packet_log.csv
 ```
 
 ---
 
 ## Inspect Flow Tables
 
-While Mininet is running:
-
 ```
-mininet> sh ovs-ofctl -O OpenFlow13 dump-flows s1
-mininet> sh ovs-ofctl -O OpenFlow13 dump-flows s2
-mininet> sh ovs-ofctl -O OpenFlow13 dump-flows s3
+mininet> sh ovs-ofctl dump-flows s1
+mininet> sh ovs-ofctl dump-flows s2
+mininet> sh ovs-ofctl dump-flows s3
+mininet> net       # topology connections
+mininet> dump      # all node details
 ```
-
-To see switch port mappings:
-
-```
-mininet> net
-mininet> nodes
-mininet> dump
-```
-
----
-
-## Analyse the Packet Log
-
-After running traffic, stop Mininet (`exit`) and run:
-
-```bash
-python3 analyze_log.py
-```
-
-Sample output:
-
-```
-===========================================================
-  PACKET LOG ANALYSIS  (142 packets total)
-===========================================================
-
- Protocol Distribution:
-   ARP      [#####..........................]    18  (12.7%)
-   TCP      [##############................]    67  (47.2%)
-   ICMP     [#######........................]    32  (22.5%)
-   UDP      [####...........................]    25  (17.6%)
-
- Action Breakdown:
-   FORWARD  [##############################]   138  (97.2%)
-   FLOOD    [..............................]     4  (2.8%)
-
- Top Source IPs (top 5):
-   10.0.0.1           42 packets
-   10.0.0.3           38 packets
-   ...
-
- Total bytes captured : 18,432 B  (18.0 KB)
- Dropped packets      : 0 (0.0%)
-```
-
----
-
-## OpenFlow Logic Summary
-
-### Table-miss rule (installed at switch connect)
-
-```
-priority=0  match=*  action=CONTROLLER
-```
-
-Every unmatched packet is sent to the controller as a `packet_in` event.
-
-### Learned forwarding rule (installed after first packet)
-
-```
-priority=1  match=(in_port=X, eth_src=M, eth_dst=N)  action=output:Y
-idle_timeout=30s
-```
-
-After the controller learns which port a MAC address is reachable on, it installs this rule so subsequent packets in the same flow are forwarded directly without hitting the controller.
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| `ryu-manager: command not found` | `pip install ryu` or use `python3 -m ryu.cmd.manager` |
-| `eventlet` import error | `pip install eventlet==0.30.2 && pip install ryu` |
-| Switches won't connect to controller | Check port 6633 is free: `sudo lsof -i :6633` |
-| `sudo mn` fails | Clean up: `sudo mn -c` then retry |
-| OVS not running | `sudo service openvswitch-switch start` |
-| 100% packet loss in pingAll | Ensure controller started BEFORE topology |
 
 ---
 
 ## Cleanup
 
 ```bash
-# Inside Mininet CLI
 mininet> exit
-
-# Clean up OVS state
-sudo mn -c
-
-# Stop Ryu (Ctrl+C in Terminal 1)
+sudo mn -c          # clean OVS state
+# Ctrl+C in Terminal 1 to stop POX
 ```
 
 ---
 
 ## References
 
-1. Mininet overview — https://mininet.org/overview/
-2. Mininet walkthrough — https://mininet.org/walkthrough/
-3. Ryu documentation — https://ryu.readthedocs.io/en/latest/
-4. OpenFlow 1.3 spec — https://opennetworking.org/wp-content/uploads/2014/10/openflow-spec-v1.3.0.pdf
-5. Ryu simple switch example — https://github.com/faucetsdn/ryu/blob/master/ryu/app/simple_switch_13.py
-6. PES University installation guide — `Mininet_Installation_Guide_on_UBUNTU_docx.pdf`
+1. [Mininet](http://mininet.org) — network emulator
+2. [POX Controller](https://github.com/noxrepo/pox) — SDN framework
+3. [OpenFlow 1.0 Spec](https://opennetworking.org/wp-content/uploads/2013/04/openflow-spec-v1.0.0.pdf)
+4. [Open vSwitch](https://www.openvswitch.org)
+5. PES University — Computer Networks UE24CS252B course materials
+
+---
+
+<div align="center">
+
+```
+built with POX · OpenFlow · Mininet · Python
+PES University — UE24CS252B — Computer Networks
+```
+
+</div>
